@@ -21,7 +21,7 @@ def post_buttons() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("📚 قناة التعليم", url="https://t.me/+UA5eg9wNyX8zNWRk")],
         [InlineKeyboardButton("⏱️ منصة التحليل الفني", url="https://leaders-of-trading.netlify.app")],
         [InlineKeyboardButton("🧑‍💻قنات المؤشرات المجانيه", url="https://t.me/+WWix9LgZXgU0NmFk")],
-        [InlineKeyboardButton("💎جميع حسابتنا الرسمية", url="https://t.me/LEADERS_OF_TRADING/30730")],
+        [InlineKeyboardButton("💎جميع حسابتنا الرسمية", url="https://t.me/LEADERS_OF_TRADING/30724")],
     ])
 def publish_choice_buttons() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
@@ -147,4 +147,5 @@ def main():
     app.run_polling()
 
 if __name__ == "__main__":
+
     main()
