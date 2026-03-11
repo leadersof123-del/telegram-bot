@@ -13,7 +13,7 @@ from telegram.ext import (
     filters,
 )
 
-TOKEN = "PUT_YOUR_NEW_TOKEN_HERE"
+TOKEN = "8644761686:AAGqPX7EjFY6NLQ-ib9zqKqRCv8zj6lXlrE"
 PUBLIC_CHANNEL = -1002099170335
 VIP_CHANNEL = -1003887300068
 
@@ -305,3 +305,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
