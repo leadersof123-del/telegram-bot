@@ -1,3 +1,4 @@
+import os
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -13,11 +14,10 @@ from telegram.ext import (
     filters,
 )
 
-TOKEN = "8644761686:AAGqPX7EjFY6NLQ-ib9zqKqRCv8zj6lXlrE"
+TOKEN = os.getenv("BOT_TOKEN") or "8644761686:AAGqPX7EjFY6NLQ-ib9zqKqRCv8zj6lXlrE"
 PUBLIC_CHANNEL = -1002099170335
 VIP_CHANNEL = -1003887300068
-
-MAX_ALBUM_PHOTOS = 15
+MAX_ALBUM_PHOTOS = 10
 
 
 def post_buttons() -> InlineKeyboardMarkup:
@@ -44,28 +44,6 @@ def publish_choice_buttons() -> InlineKeyboardMarkup:
     ])
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()
-    await update.message.reply_text(
-        "✅ البوت جاهز للعمل.\n\n"
-        "أرسل الآن:\n"
-        "• نص فقط\n"
-        "• صورة مع نص\n"
-        "• فيديو مع نص\n"
-        "• ألبوم صور حتى 15 صورة\n\n"
-        "سأعرض لك معاينة ثم تختار مكان النشر."
-    )
-
-
-async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()
-    await update.message.reply_text("🧹 تم مسح المسودة. يمكنك إرسال شيء جديد.")
-
-
-async def chatid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"Chat ID الحالي هو: {update.effective_chat.id}")
-
-
 def clear_draft_data(context: ContextTypes.DEFAULT_TYPE):
     for key in [
         "draft_type",
@@ -77,6 +55,28 @@ def clear_draft_data(context: ContextTypes.DEFAULT_TYPE):
         "album_job_name",
     ]:
         context.user_data.pop(key, None)
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    clear_draft_data(context)
+    await update.message.reply_text(
+        "✅ البوت جاهز للعمل.\n\n"
+        "أرسل الآن:\n"
+        "• نص فقط\n"
+        "• صورة مع نص\n"
+        "• فيديو مع نص\n"
+        "• ألبوم صور حتى 10 صور\n\n"
+        "سأعرض لك معاينة ثم تختار مكان النشر."
+    )
+
+
+async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    clear_draft_data(context)
+    await update.message.reply_text("🧹 تم مسح المسودة. يمكنك إرسال شيء جديد.")
+
+
+async def chatid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(f"Chat ID الحالي هو: {update.effective_chat.id}")
 
 
 async def finalize_album(context: ContextTypes.DEFAULT_TYPE):
@@ -91,9 +91,8 @@ async def finalize_album(context: ContextTypes.DEFAULT_TYPE):
     if not album:
         return
 
-    if len(album) > MAX_ALBUM_PHOTOS:
-        album = album[:MAX_ALBUM_PHOTOS]
-        user_data["draft_album"] = album
+    album = album[:MAX_ALBUM_PHOTOS]
+    user_data["draft_album"] = album
 
     media = []
     for i, photo_id in enumerate(album):
@@ -121,15 +120,13 @@ async def receive_draft(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not message:
         return
 
-    # حالة ألبوم صور
-    if message.photo and message.media_group_id:
+    # استقبال ألبوم صور
+    if message.media_group_id and message.photo:
         media_group_id = message.media_group_id
         photo_id = message.photo[-1].file_id
         text = message.caption or ""
 
-        current_group = context.user_data.get("album_group_id")
-
-        if current_group != media_group_id:
+        if context.user_data.get("album_group_id") != media_group_id:
             clear_draft_data(context)
             context.user_data["draft_type"] = "album"
             context.user_data["draft_album"] = []
@@ -137,15 +134,15 @@ async def receive_draft(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["draft_text"] = text
 
         album = context.user_data.get("draft_album", [])
-        if len(album) < MAX_ALBUM_PHOTOS:
+
+        if photo_id not in album and len(album) < MAX_ALBUM_PHOTOS:
             album.append(photo_id)
+
         context.user_data["draft_album"] = album
 
-        # احتفظ بالكابشن إذا وصل مع أول صورة أو أي صورة
-        if text and not context.user_data.get("draft_text"):
+        if text:
             context.user_data["draft_text"] = text
 
-        # إلغاء أي مهمة قديمة لنفس الألبوم
         old_job_name = context.user_data.get("album_job_name")
         if old_job_name:
             for job in context.job_queue.get_jobs_by_name(old_job_name):
@@ -165,7 +162,7 @@ async def receive_draft(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # أي رسالة جديدة منفردة تلغي الألبوم السابق المؤقت
+    # إذا الرسالة ليست ألبوم، نمسح المسودة القديمة
     clear_draft_data(context)
 
     text = message.text or message.caption or ""
@@ -264,7 +261,6 @@ async def on_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             await context.bot.send_media_group(chat_id=target, media=media)
 
-            # الأزرار لا تُضاف مباشرة مع الألبوم، لذلك نرسلها برسالة منفصلة
             await context.bot.send_message(
                 chat_id=target,
                 text="🔘 الروابط الرسمية:",
@@ -287,6 +283,9 @@ async def on_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
+    if not TOKEN or TOKEN == "PUT_YOUR_NEW_TOKEN_HERE":
+        raise ValueError("ضع توكن البوت الصحيح في BOT_TOKEN أو داخل المتغير TOKEN")
+
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -305,4 +304,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
