@@ -1,4 +1,3 @@
-import os
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -14,10 +13,12 @@ from telegram.ext import (
     filters,
 )
 
-TOKEN = os.getenv("8644761686:AAGqPX7EjFY6NLQ-ib9zqKqRCv8zj6lXlrE") or "8644761686:AAGqPX7EjFY6NLQ-ib9zqKqRCv8zj6lXlrE"
+TOKEN = "8644761686:AAGqPX7EjFY6NLQ-ib9zqKqRCv8zj6lXlrE"
 PUBLIC_CHANNEL = -1002099170335
 VIP_CHANNEL = -1003887300068
-MAX_ALBUM_PHOTOS = 10
+
+MAX_PHOTOS = 10
+PREVIEW_DELAY = 2.0  # عدد الثواني بعد آخر صورة لعرض المعاينة
 
 
 def post_buttons() -> InlineKeyboardMarkup:
@@ -38,101 +39,128 @@ def publish_choice_buttons() -> InlineKeyboardMarkup:
             InlineKeyboardButton("💎 نشر بقناة VIP", callback_data="publish_vip"),
         ],
         [
-            InlineKeyboardButton("✏️ متابعة الإضافة", callback_data="continue_edit"),
+            InlineKeyboardButton("✏️ تعديل/إعادة إرسال", callback_data="edit_post"),
             InlineKeyboardButton("❌ إلغاء", callback_data="cancel_post"),
         ],
     ])
 
 
-def clear_draft_data(context: ContextTypes.DEFAULT_TYPE):
+def clear_draft(context: ContextTypes.DEFAULT_TYPE):
     for key in [
         "draft_type",
         "draft_text",
         "draft_photo",
         "draft_video",
-        "draft_album",
-        "draft_texts",
-        "awaiting_more",
+        "draft_photos",
+        "preview_job_name",
     ]:
         context.user_data.pop(key, None)
 
 
-def build_combined_text(context: ContextTypes.DEFAULT_TYPE) -> str:
-    texts = context.user_data.get("draft_texts", [])
-    texts = [t.strip() for t in texts if t and t.strip()]
-    return "\n\n".join(texts)
+async def show_preview(context: ContextTypes.DEFAULT_TYPE):
+    job = context.job
+    chat_id = job.data["chat_id"]
+    user_id = job.data["user_id"]
 
+    user_data = context.application.user_data[user_id]
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    clear_draft_data(context)
-    await update.message.reply_text(
-        "✅ البوت جاهز.\n\n"
-        "أرسل:\n"
-        "• عدة صفقات كنصوص متعددة\n"
-        "• عدة صور واحدة وراء الثانية حتى 10 صور\n"
-        "• فيديو واحد مع نص\n\n"
-        "بعد ما تخلص أرسل /done\n"
-        "وأنا أجمعهم وأعرض لك المعاينة قبل النشر."
-    )
-
-
-async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    clear_draft_data(context)
-    await update.message.reply_text("🧹 تم مسح المسودة.")
-
-
-async def chatid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"Chat ID الحالي هو: {update.effective_chat.id}")
-
-
-async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    draft_type = context.user_data.get("draft_type")
-    text = build_combined_text(context)
-    album = context.user_data.get("draft_album", [])
-    photo_id = context.user_data.get("draft_photo")
-    video_id = context.user_data.get("draft_video")
+    draft_type = user_data.get("draft_type")
+    text = user_data.get("draft_text", "")
+    photo_id = user_data.get("draft_photo")
+    video_id = user_data.get("draft_video")
+    photos = user_data.get("draft_photos", [])
 
     if not draft_type:
-        await update.message.reply_text("ما في مسودة حالياً. أرسل المحتوى أولاً.")
         return
 
-    await update.message.reply_text("👀 معاينة المنشور قبل النشر:")
+    await context.bot.send_message(chat_id=chat_id, text="👀 معاينة المنشور قبل النشر:")
 
-    if draft_type == "album" and album:
-        media = []
-        for i, pid in enumerate(album[:MAX_ALBUM_PHOTOS]):
-            if i == 0 and text:
-                media.append(InputMediaPhoto(media=pid, caption=text))
-            else:
-                media.append(InputMediaPhoto(media=pid))
-        await update.message.reply_media_group(media=media)
-        await update.message.reply_text("🔘 أزرار المنشور:", reply_markup=post_buttons())
-
-    elif draft_type == "photo" and photo_id:
-        await update.message.reply_photo(
-            photo=photo_id,
-            caption=text if text else None,
-            reply_markup=post_buttons()
-        )
-
-    elif draft_type == "video" and video_id:
-        await update.message.reply_video(
+    if draft_type == "video" and video_id:
+        await context.bot.send_video(
+            chat_id=chat_id,
             video=video_id,
             caption=text if text else None,
             reply_markup=post_buttons()
         )
 
+    elif draft_type == "multi_photo" and photos:
+        media = []
+        for i, pid in enumerate(photos[:MAX_PHOTOS]):
+            if i == 0 and text:
+                media.append(InputMediaPhoto(media=pid, caption=text))
+            else:
+                media.append(InputMediaPhoto(media=pid))
+
+        await context.bot.send_media_group(chat_id=chat_id, media=media)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="🔘 أزرار المنشور:",
+            reply_markup=post_buttons()
+        )
+
+    elif draft_type == "photo" and photo_id:
+        await context.bot.send_photo(
+            chat_id=chat_id,
+            photo=photo_id,
+            caption=text if text else None,
+            reply_markup=post_buttons()
+        )
+
     else:
-        await update.message.reply_text(
-            text if text else "نص فارغ؟",
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=text if text else "نص فارغ؟",
             reply_markup=post_buttons(),
             disable_web_page_preview=True
         )
 
-    await update.message.reply_text(
-        "أين تريد نشر هذا المنشور؟",
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text="اين تريد نشر هذا المنشور؟",
         reply_markup=publish_choice_buttons()
     )
+
+
+def reschedule_preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    old_job_name = context.user_data.get("preview_job_name")
+    if old_job_name:
+        for job in context.job_queue.get_jobs_by_name(old_job_name):
+            job.schedule_removal()
+
+    job_name = f"preview_{update.effective_user.id}"
+    context.user_data["preview_job_name"] = job_name
+
+    context.job_queue.run_once(
+        show_preview,
+        when=PREVIEW_DELAY,
+        name=job_name,
+        data={
+            "chat_id": update.effective_chat.id,
+            "user_id": update.effective_user.id,
+        },
+    )
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    clear_draft(context)
+    await update.message.reply_text(
+        "✅ البوت جاهز للعمل.\n\n"
+        "أرسل الآن:\n"
+        "• نص فقط\n"
+        "• صورة مع نص\n"
+        "• فيديو مع نص\n"
+        "• عدة صور حتى 10 صور\n\n"
+        "وسأعرض لك المعاينة تلقائيًا ثم تختار مكان النشر."
+    )
+
+
+async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    clear_draft(context)
+    await update.message.reply_text("🧹 تم مسح المسودة. يمكنك إرسال شيء جديد.")
+
+
+async def chatid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(f"Chat ID الحالي هو: {update.effective_chat.id}")
 
 
 async def receive_draft(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -144,63 +172,56 @@ async def receive_draft(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo_id = message.photo[-1].file_id if message.photo else None
     video_id = message.video.file_id if message.video else None
 
-    # لو فيديو
+    # فيديو
     if video_id:
-        # الفيديو يكون منفرد
-        clear_draft_data(context)
+        clear_draft(context)
         context.user_data["draft_type"] = "video"
         context.user_data["draft_video"] = video_id
-        context.user_data["draft_texts"] = [text] if text else []
-        await message.reply_text("✅ تم حفظ الفيديو في المسودة. أرسل /done للمعاينة والنشر.")
+        context.user_data["draft_text"] = text
+
+        await message.reply_text("🎬 تم استلام الفيديو، جاري تجهيز المعاينة...")
+        reschedule_preview(update, context)
         return
 
-    # لو صورة
+    # صور متعددة أو صورة واحدة
     if photo_id:
         current_type = context.user_data.get("draft_type")
 
-        if current_type in [None, "album", "photo"]:
-            album = context.user_data.get("draft_album", [])
+        if current_type not in [None, "photo", "multi_photo"]:
+            clear_draft(context)
 
-            if not album:
-                context.user_data["draft_type"] = "album"
+        photos = context.user_data.get("draft_photos", [])
 
-            if len(album) >= MAX_ALBUM_PHOTOS:
-                await message.reply_text(f"⚠️ الحد الأقصى {MAX_ALBUM_PHOTOS} صور فقط.")
-                return
-
-            album.append(photo_id)
-            context.user_data["draft_album"] = album
-
-            texts = context.user_data.get("draft_texts", [])
-            if text:
-                texts.append(text)
-            context.user_data["draft_texts"] = texts
-
-            await message.reply_text(
-                f"✅ تم إضافة الصورة رقم {len(album)} إلى المسودة.\n"
-                "أرسل المزيد أو أرسل /done."
-            )
-            return
+        # إذا أول صورة
+        if not photos:
+            context.user_data["draft_photos"] = [photo_id]
+            context.user_data["draft_photo"] = photo_id
+            context.user_data["draft_type"] = "photo"
         else:
-            await message.reply_text("⚠️ عندك مسودة من نوع آخر. أرسل /clear أولاً أو /done.")
-            return
+            if photo_id not in photos:
+                if len(photos) >= MAX_PHOTOS:
+                    await message.reply_text(f"⚠️ الحد الأقصى {MAX_PHOTOS} صور فقط.")
+                    return
 
-    # لو نص
-    if text:
-        current_type = context.user_data.get("draft_type")
+                photos.append(photo_id)
+                context.user_data["draft_photos"] = photos
+                context.user_data["draft_type"] = "multi_photo"
 
-        if current_type in [None, "text", "album"]:
-            if current_type is None:
-                context.user_data["draft_type"] = "text"
+        if text:
+            context.user_data["draft_text"] = text
 
-            texts = context.user_data.get("draft_texts", [])
-            texts.append(text)
-            context.user_data["draft_texts"] = texts
+        count = len(context.user_data.get("draft_photos", []))
+        await message.reply_text(f"📷 تم استلام {count} صورة، انتظر قليلاً لعرض المعاينة...")
+        reschedule_preview(update, context)
+        return
 
-            await message.reply_text("✅ تم إضافة النص إلى المسودة. أرسل المزيد أو /done.")
-            return
+    # نص فقط
+    clear_draft(context)
+    context.user_data["draft_type"] = "text"
+    context.user_data["draft_text"] = text
 
-        await message.reply_text("⚠️ عندك مسودة فيديو. أرسل /done أو /clear أولاً.")
+    await message.reply_text("📝 تم استلام النص، جاري تجهيز المعاينة...")
+    reschedule_preview(update, context)
 
 
 async def on_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -209,18 +230,19 @@ async def on_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     action = q.data
     draft_type = context.user_data.get("draft_type")
-    text = build_combined_text(context)
+    text = context.user_data.get("draft_text", "")
     photo_id = context.user_data.get("draft_photo")
     video_id = context.user_data.get("draft_video")
-    album = context.user_data.get("draft_album", [])
+    photos = context.user_data.get("draft_photos", [])
 
     if action == "cancel_post":
-        clear_draft_data(context)
-        await q.edit_message_text("❌ تم الإلغاء.")
+        clear_draft(context)
+        await q.edit_message_text("❌ تم الإلغاء. أرسل منشورًا جديدًا في أي وقت.")
         return
 
-    if action == "continue_edit":
-        await q.edit_message_text("✏️ أكمل إرسال الصفقات، وبعد الانتهاء أرسل /done")
+    if action == "edit_post":
+        clear_draft(context)
+        await q.edit_message_text("✏️ حسناً، أرسل المنشور الجديد الآن.")
         return
 
     target = PUBLIC_CHANNEL if action == "publish_public" else VIP_CHANNEL
@@ -235,9 +257,9 @@ async def on_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=post_buttons()
             )
 
-        elif draft_type == "album" and album:
+        elif draft_type == "multi_photo" and photos:
             media = []
-            for i, pid in enumerate(album[:MAX_ALBUM_PHOTOS]):
+            for i, pid in enumerate(photos[:MAX_PHOTOS]):
                 if i == 0 and text:
                     media.append(InputMediaPhoto(media=pid, caption=text))
                 else:
@@ -250,26 +272,23 @@ async def on_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=post_buttons()
             )
 
-        elif draft_type in ["text", "photo"]:
-            if photo_id:
-                await context.bot.send_photo(
-                    chat_id=target,
-                    photo=photo_id,
-                    caption=text if text else None,
-                    reply_markup=post_buttons()
-                )
-            else:
-                await context.bot.send_message(
-                    chat_id=target,
-                    text=text if text else " ",
-                    reply_markup=post_buttons(),
-                    disable_web_page_preview=True
-                )
-        else:
-            await q.edit_message_text("⚠️ لا توجد مسودة صالحة للنشر.")
-            return
+        elif draft_type == "photo" and photo_id:
+            await context.bot.send_photo(
+                chat_id=target,
+                photo=photo_id,
+                caption=text if text else None,
+                reply_markup=post_buttons()
+            )
 
-        clear_draft_data(context)
+        else:
+            await context.bot.send_message(
+                chat_id=target,
+                text=text if text else " ",
+                reply_markup=post_buttons(),
+                disable_web_page_preview=True
+            )
+
+        clear_draft(context)
         await q.edit_message_text(f"✅ تم النشر بنجاح في {target_name}.")
 
     except Exception as e:
@@ -277,15 +296,14 @@ async def on_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
-    if not TOKEN or TOKEN == "PUT_YOUR_NEW_TOKEN_HERE":
-        raise ValueError("ضع التوكن الصحيح في BOT_TOKEN أو داخل المتغير TOKEN")
+    if TOKEN == "PUT_NEW_TOKEN_HERE":
+        raise ValueError("ضع توكن البوت الصحيح مكان TOKEN")
 
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("clear", clear))
     app.add_handler(CommandHandler("chatid", chatid))
-    app.add_handler(CommandHandler("done", done))
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_draft))
     app.add_handler(MessageHandler(filters.PHOTO, receive_draft))
